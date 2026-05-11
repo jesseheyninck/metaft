@@ -1,0 +1,6 @@
+env
+__pycache__
+complete_programs
+*.partial.lp
+*.rlp
+*.glp

@@ -1,0 +1,10 @@
+edge(0,1).
+edge(0,2).
+edge(1,2).
+edge(1,3).
+edge(2,0).
+edge(2,1).
+edge(2,4).
+edge(3,2).
+edge(4,0).
+edge(4,1).

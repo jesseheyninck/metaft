@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
-import contextlib
-from functools import partial, reduce
+from functools import reduce
 from itertools import count, groupby
 from operator import itemgetter, attrgetter, add
 from sys import stderr, stdin, stdout
@@ -80,7 +79,7 @@ class Interpretation:
         """Simple lexigraphical ordering intended only for ensuring printed output is deterministic"""
         if not isinstance(other, Interpretation):
             return NotImplemented
-        key = lambda x: (self.__set_repr(self.h), self.__set_repr(self.t))
+        def key(x): return (self.__set_repr(self.h), self.__set_repr(self.t))
         return key(self) < key(other)
 
 
@@ -311,7 +310,7 @@ class AnswerSet:
         return cls.__solve(program)
 
     @classmethod
-    def solve_all(cls, program: str) -> "Iterable[AnswerSet]":
+    def solve_all(cls, program: str) -> "list[AnswerSet]":
         return sorted(cls.__solve(program, all_models=True), key=attrgetter("interpretation"))
 
 
@@ -349,7 +348,7 @@ class AnswerSet:
             padding = self.steps.compute_padding()
         i = self.steps[-1].interpretation
         return f"FIXPOINT {i.padded_string(padding)}"
-    
+
     @staticmethod
     def fixpoints(answersets: "Iterable[AnswerSet]", show_answer_set: bool, output_file):
         padding = AnswerSet.compute_padding(answersets)
@@ -647,15 +646,18 @@ def ultimate_helper(program: Path, solve: bool, show_answer_set: bool, output_fi
             return
         if show_answer_set is True:
             print(answerset.atoms_text(), file=output_file)
-        print(answerset.fixpoint(), file=output_file)    
+        print(answerset.fixpoint(), file=output_file)
         return
     answersets = AnswerSet.solve_all(output)
+    if len(answersets) == 0:
+        print("No fixpoints", file=output_file)
+        return
     AnswerSet.fixpoints(answersets, show_answer_set, output_file)
 
 @app.command()
 def ultimate_kripke_kleene(program: Path, solve: bool=True, show_answer_set=SHOW_ANSWER_SET_OPTION, output_file=OUTPUT_FILE):
     "Construct the ultimate operator for the Melvin-Fitting operator applied to a program to compute the Kripke-Kleene fixpoint"
-    p = Path(__file__).parent 
+    p = Path(__file__).parent
     file = load_from_file(p / "axioms/fixpoints/iterate_lfp.lp")
     file += load_from_file(p / "axioms/all_1steps.lp")
     ultimate_helper(program, solve, show_answer_set, output_file, (file,), False)
@@ -665,6 +667,54 @@ def ultimate_fixpoints(program: Path, solve: bool=True, show_answer_set=SHOW_ANS
     "Construct the ultimate operator for the Melvin-Fitting operator applied to a program to compute all fixpoints"
     file = load_from_file(Path(__file__).parent / "axioms/fixpoints/iterate_everything.lp")
     ultimate_helper(program, solve, show_answer_set, output_file, (file,), True)
+
+def ultimate_helper_2(program: Path, solve: bool, show_answer_set: bool, output_file, additional_files: "Tuple[str]", many: bool):
+    p = Path(__file__).parent
+    output = reify_into_program_text(program.read_text())
+    output += load_from_file(p / "ultimate/ultimate_stable.lp")
+    output += load_from_file(p / "axioms/fixpoints/1step.lp")
+    output += load_from_file(p / "axioms/fixpoints/2step.lp")
+    output += load_from_file(p / "axioms/fixpoints/iterate_generic_1step.lp")
+    output += load_from_file(p / "axioms/fixpoints/iterate_generic_2step.lp")
+    output += load_from_file(p / "axioms/output_1step.lp")
+    output += load_from_file(p / "axioms/output_2step.lp")
+    output += load_from_file(p / "axioms/models.lp")
+    output += "\n".join(additional_files)
+    show_answer_set = bool(show_answer_set) if show_answer_set != "False" else False
+    if not solve:
+        print(output, file=output_file)
+        return
+    if not many:
+        answerset = AnswerSet.solve_one(output)
+        if answerset is None:
+            print("No fixpoints", file=output_file)
+            return
+        if show_answer_set is True:
+            print(answerset.atoms_text(), file=output_file)
+        print(answerset.fixpoint(), file=output_file)
+        return
+    answersets = AnswerSet.solve_all(output)
+    if len(answersets) == 0:
+        print("No fixpoints", file=output_file)
+        return
+    AnswerSet.fixpoints(answersets, show_answer_set, output_file)
+
+@app.command()
+def ultimate_well_founded(program: Path, solve: bool=True, show_answer_set=SHOW_ANSWER_SET_OPTION, output_file=OUTPUT_FILE):
+    "Construct the ultimate operator for the Melvin-Fitting operator applied to a program to compute the Kripke-Kleene fixpoint"
+    p = Path(__file__).parent
+    file = load_from_file(p / "axioms/fixpoints/iterate_lfp.lp")
+    file += load_from_file(p / "axioms/all_1steps.lp")
+    file += load_from_file(p / "axioms/all_2steps.lp")
+    ultimate_helper_2(program, solve, show_answer_set, output_file, (file,), False)
+
+@app.command()
+def ultimate_stable_fixpoints(program: Path, solve: bool=True, show_answer_set=SHOW_ANSWER_SET_OPTION, output_file=OUTPUT_FILE):
+    "Construct the ultimate operator for the Melvin-Fitting operator applied to a program to compute all fixpoints"
+    file = load_from_file(Path(__file__).parent / "axioms/fixpoints/iterate_everything.lp")
+    # We only need all_2steps because iterate_everything.lp provides 1steps
+    file += load_from_file(Path(__file__).parent / "axioms/all_2steps.lp")
+    ultimate_helper_2(program, solve, show_answer_set, output_file, (file,), True)
 
 @app.command()
 def regression_test(accept: bool = ACCEPT_TESTS_OPTION):
@@ -704,6 +754,12 @@ def regression_test(accept: bool = ACCEPT_TESTS_OPTION):
             print(
                 f"ultimate_fixpoints(program=Path('{test}'), solve=True, show_answer_set=False)", file=new_output)
             ultimate_fixpoints(test, True, False, output_file=new_output)
+            print(
+                f"ultimate_well_founded(program=Path('{test}'), solve=True, show_answer_set=False)", file=new_output)
+            ultimate_well_founded(test, True, False, output_file=new_output)
+            print(
+                f"ultimate_stable_fixpoints(program=Path('{test}'), solve=True, show_answer_set=False)", file=new_output)
+            ultimate_stable_fixpoints(test, True, False, output_file=new_output)
 
     some_differ = False
     for test in Path.glob(p / "tests", "*.lp"):

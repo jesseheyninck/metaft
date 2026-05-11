@@ -1,0 +1,12 @@
+# environment.yml
+name: aftReified
+channels:
+  - conda-forge
+dependencies:
+  - python
+  - matplotlib
+  - networkx
+  - pandas
+  - clingo
+  - python-clingox
+  - tqdm
